@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Weather">
+<meta name="theme-color" content="#1f4e79">
+<title>Weather</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⛅</text></svg>">
+<style>
+:root{--top:#1f4e79;--bot:#6fa8d6;--ink:#fff;--soft:rgba(255,255,255,.16);--soft2:rgba(255,255,255,.26)}
+*{box-sizing:border-box;margin:0}
+html,body{min-height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:linear-gradient(var(--top),var(--bot)) fixed;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);transition:background .6s}
+body.clear{--top:#1b5fa8;--bot:#7cc0ee}
+body.cloud{--top:#46586b;--bot:#8fa1b3}
+body.rain{--top:#26364a;--bot:#5b7390}
+body.snow{--top:#5d7894;--bot:#c3d3e2}
+body.storm{--top:#1c1f33;--bot:#4b4f72}
+body.night{--top:#0e1730;--bot:#34476e}
+main{max-width:560px;margin:0 auto;padding:16px 16px 40px}
+button,input{font:inherit;color:inherit}
+button{background:var(--soft);border:0;border-radius:999px;padding:10px 16px;cursor:pointer;min-height:44px}
+button:active{background:var(--soft2)}
+button:focus-visible,input:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.row{display:flex;gap:8px;align-items:center}
+.search{position:relative}
+.search input{width:100%;background:var(--soft);border:0;border-radius:14px;padding:13px 16px;min-height:48px}
+.search input::placeholder{color:rgba(255,255,255,.7)}
+#results{position:absolute;left:0;right:0;top:54px;background:#fff;color:#1a2633;border-radius:14px;overflow:hidden;z-index:5;box-shadow:0 8px 30px rgba(0,0,0,.3)}
+#results button{display:block;width:100%;text-align:left;background:none;border-radius:0;padding:13px 16px;border-bottom:1px solid #e6ebf0}
+#results small{color:#5d6b7a}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:12px 0 4px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{white-space:nowrap;flex:none}
+.chip.on{background:#fff;color:#1a2633}
+.hero{text-align:center;padding:28px 0 18px}
+.place{font-size:1.25rem;font-weight:600}
+.temp{font-size:6.5rem;font-weight:200;line-height:1;letter-spacing:-.04em;margin:6px 0}
+.cond{font-size:1.1rem}
+.sub{opacity:.85;margin-top:4px;font-size:.95rem}
+.actions{display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap}
+.tabs{display:flex;background:var(--soft);border-radius:999px;padding:4px;margin:8px 0 16px}
+.tabs button{flex:1;background:none}
+.tabs button.on{background:#fff;color:#1a2633}
+.panel{background:var(--soft);border-radius:20px;padding:6px 16px}
+.hours{display:flex;gap:4px;overflow-x:auto;padding:14px 0;scrollbar-width:none}
+.hr{flex:none;width:58px;text-align:center;display:grid;gap:6px;font-size:.9rem}
+.hr .e,.day .e{font-size:1.5rem}
+.hr .p{font-size:.75rem;color:#bfe3ff;min-height:1em}
+.day{display:grid;grid-template-columns:64px 34px 1fr;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid var(--soft)}
+.day:last-child{border:0}
+.rng{display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums}
+.bar{flex:1;height:5px;border-radius:5px;background:var(--soft);position:relative}
+.bar i{position:absolute;top:0;bottom:0;border-radius:5px;background:#fff}
+.dim{opacity:.7}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.stat{background:var(--soft);border-radius:16px;padding:12px 14px}
+.stat b{display:block;font-size:1.15rem;font-weight:600;margin-top:2px}
+.msg{text-align:center;padding:40px 10px;opacity:.9}
+.hide{display:none}
+.alert{background:#fff;color:#16324f;border-radius:16px;padding:12px 16px;margin:4px 0 8px;display:flex;gap:10px;align-items:center;font-weight:500}
+.alert .e{font-size:1.5rem}
+#alertbtn.on{background:#fff;color:#1a2633}
+</style>
+</head>
+<body>
+<main>
+  <div class="search">
+    <input id="q" type="search" placeholder="Search for a city" autocomplete="off" aria-label="Search for a city">
+    <div id="results" class="hide"></div>
+  </div>
+  <div class="chips" id="chips"></div>
+
+  <section class="hero">
+    <div class="place" id="place"></div>
+    <div class="temp" id="temp">–</div>
+    <div class="cond" id="cond"></div>
+    <div class="sub" id="hilo"></div>
+    <div class="sub" id="hebdate"></div>
+    <div class="actions">
+      <button id="save">Save place</button>
+      <button id="def" class="hide">Make default</button>
+      <button id="loc">Use my location</button>
+      <button id="unit">°C</button>
+      <button id="alertbtn">Rain alerts: off</button>
+    </div>
+  </section>
+  <div class="alert hide" id="alert" role="status"></div>
+
+  <div class="tabs" role="tablist">
+    <button class="on" data-t="today" role="tab">Today</button>
+    <button data-t="week" role="tab">7 days</button>
+    <button data-t="jewish" role="tab">Jewish</button>
+  </div>
+
+  <div id="today">
+    <div class="panel"><div class="hours" id="hours"></div></div>
+    <div class="stats" id="stats"></div>
+  </div>
+  <div id="week" class="hide"><div class="panel" id="days"></div></div>
+  <div id="jewish" class="hide">
+    <div class="panel" id="jlist"><div class="msg">Loading…</div></div>
+    <div class="actions"><button id="il">Diaspora holidays</button></div>
+    <p class="dim" style="text-align:center;font-size:.8rem;margin-top:10px">Candle lighting 20 min before sunset, havdalah 30 min after. Data from Hebcal.</p>
+  </div>
+  <div class="msg hide" id="msg"></div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const WX = {0:['Clear','☀️','clear'],1:['Mostly clear','🌤️','clear'],2:['Partly cloudy','⛅','cloud'],3:['Overcast','☁️','cloud'],45:['Fog','🌫️','cloud'],48:['Fog','🌫️','cloud'],51:['Light drizzle','🌦️','rain'],53:['Drizzle','🌦️','rain'],55:['Heavy drizzle','🌧️','rain'],56:['Freezing drizzle','🌧️','rain'],57:['Freezing drizzle','🌧️','rain'],61:['Light rain','🌦️','rain'],63:['Rain','🌧️','rain'],65:['Heavy rain','🌧️','rain'],66:['Freezing rain','🌧️','rain'],67:['Freezing rain','🌧️','rain'],71:['Light snow','🌨️','snow'],73:['Snow','🌨️','snow'],75:['Heavy snow','❄️','snow'],77:['Snow grains','🌨️','snow'],80:['Showers','🌦️','rain'],81:['Showers','🌧️','rain'],82:['Heavy showers','🌧️','rain'],85:['Snow showers','🌨️','snow'],86:['Snow showers','🌨️','snow'],95:['Thunderstorm','⛈️','storm'],96:['Thunderstorm, hail','⛈️','storm'],99:['Thunderstorm, hail','⛈️','storm']};
+const wx = c => WX[c] || ['Unknown','🌡️','cloud'];
+
+// ---- storage (guarded: can be empty or blocked) ----
+const store = {
+  get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d }catch(e){ return d } },
+  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)) }catch(e){} }
+};
+let places = store.get('wx.places', []);
+let defKey = store.get('wx.default', null);
+let unit = store.get('wx.unit', 'C');
+let cur = null; // {name, lat, lon}
+const key = p => p.lat.toFixed(2) + ',' + p.lon.toFixed(2);
+
+function persist(){ store.set('wx.places', places); store.set('wx.default', defKey); store.set('wx.unit', unit) }
+
+// ---- chips / save buttons ----
+function renderChips(){
+  const c = $('chips'); c.innerHTML = '';
+  places.forEach(p => {
+    const b = document.createElement('button');
+    b.className = 'chip' + (cur && key(cur) === key(p) ? ' on' : '');
+    b.textContent = (key(p) === defKey ? '★ ' : '') + p.name;
+    b.onclick = () => load(p);
+    c.appendChild(b);
+  });
+  const saved = cur && places.some(p => key(p) === key(cur));
+  $('save').textContent = saved ? 'Remove place' : 'Save place';
+  $('save').classList.toggle('hide', !cur);
+  $('def').classList.toggle('hide', !(saved && key(cur) !== defKey));
+}
+$('save').onclick = () => {
+  if(!cur) return;
+  const i = places.findIndex(p => key(p) === key(cur));
+  if(i >= 0){ if(key(places[i]) === defKey) defKey = null; places.splice(i, 1) }
+  else { places.push(cur); if(!defKey) defKey = key(cur) }
+  persist(); renderChips();
+};
+$('def').onclick = () => { defKey = key(cur); persist(); renderChips() };
+$('unit').onclick = () => { unit = unit === 'C' ? 'F' : 'C'; persist(); if(cur) load(cur) };
+
+// ---- search ----
+let t;
+$('q').addEventListener('input', e => {
+  clearTimeout(t);
+  const v = e.target.value.trim();
+  if(v.length < 2){ $('results').classList.add('hide'); return }
+  t = setTimeout(() => search(v), 300);
+});
+async function search(v){
+  try{
+    const r = await fetch('https://geocoding-api.open-meteo.com/v1/search?count=6&language=en&name=' + encodeURIComponent(v));
+    const j = await r.json();
+    const box = $('results'); box.innerHTML = '';
+    if(!j.results){ box.innerHTML = '<button disabled>No matches. Try a nearby city.</button>' }
+    (j.results || []).forEach(x => {
+      const b = document.createElement('button');
+      const sub = [x.admin1, x.country].filter(Boolean).join(', ');
+      b.innerHTML = '<span></span><br><small></small>';
+      b.firstChild.textContent = x.name; b.querySelector('small').textContent = sub;
+      b.onclick = () => { $('q').value = ''; box.classList.add('hide'); load({name: x.name, lat: x.latitude, lon: x.longitude}) };
+      box.appendChild(b);
+    });
+    box.classList.remove('hide');
+  }catch(e){ showMsg('Search needs an internet connection.') }
+}
+document.addEventListener('click', e => { if(!e.target.closest('.search')) $('results').classList.add('hide') });
+
+$('loc').onclick = () => {
+  if(!navigator.geolocation) return showMsg('Location is not available on this device.');
+  $('loc').textContent = 'Locating…';
+  navigator.geolocation.getCurrentPosition(
+    p => { $('loc').textContent = 'Use my location'; load({name:'My location', lat:p.coords.latitude, lon:p.coords.longitude}) },
+    () => { $('loc').textContent = 'Use my location'; showMsg('Location is blocked. Allow it in your browser settings, or search for a city.') },
+    {timeout: 10000});
+};
+
+// ---- tabs ----
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b));
+  $('today').classList.toggle('hide', b.dataset.t !== 'today');
+  $('week').classList.toggle('hide', b.dataset.t !== 'week');
+  $('jewish').classList.toggle('hide', b.dataset.t !== 'jewish');
+});
+
+function showMsg(m){ const el = $('msg'); el.textContent = m; el.classList.remove('hide') }
+
+// ---- load + render ----
+async function load(p){
+  cur = p; $('place').textContent = p.name; $('msg').classList.add('hide'); renderChips();
+  const u = 'https://api.open-meteo.com/v1/forecast?latitude=' + p.lat + '&longitude=' + p.lon +
+    '&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code,is_day' +
+    '&hourly=temperature_2m,weather_code,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max' +
+    '&forecast_days=7&timezone=auto&temperature_unit=' + (unit === 'F' ? 'fahrenheit' : 'celsius') + '&wind_speed_unit=' + (unit === 'F' ? 'mph' : 'kmh');
+  try{
+    const r = await fetch(u); if(!r.ok) throw 0;
+    render(await r.json());
+  }catch(e){ showMsg('Could not load the forecast. Check your connection and try again.') }
+}
+const deg = n => Math.round(n) + '°';
+const fmtH = s => new Date(s).toLocaleTimeString([], {hour:'numeric'}).replace(' ', '').toLowerCase();
+const fmtT = s => new Date(s).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+
+function render(d){
+  const c = d.current, [label, emoji, theme] = wx(c.weather_code);
+  document.body.className = c.is_day ? theme : (theme === 'clear' || theme === 'cloud' ? 'night' : theme);
+  $('temp').textContent = deg(c.temperature_2m);
+  $('cond').textContent = emoji + ' ' + label;
+  $('hilo').textContent = 'High ' + deg(d.daily.temperature_2m_max[0]) + ' · Low ' + deg(d.daily.temperature_2m_min[0]);
+  $('unit').textContent = '°' + unit;
+
+  // next 24 hours from current time (location's own clock)
+  const hrs = $('hours'); hrs.innerHTML = '';
+  const now = c.time.slice(0, 13);
+  let i = d.hourly.time.findIndex(x => x.slice(0, 13) >= now); if(i < 0) i = 0;
+  for(let k = i; k < Math.min(i + 24, d.hourly.time.length); k++){
+    const el = document.createElement('div'); el.className = 'hr';
+    const pp = d.hourly.precipitation_probability[k];
+    el.innerHTML = '<span>' + (k === i ? 'Now' : fmtH(d.hourly.time[k])) + '</span><span class="e">' + wx(d.hourly.weather_code[k])[1] +
+      '</span><b>' + deg(d.hourly.temperature_2m[k]) + '</b><span class="p">' + (pp >= 20 ? pp + '%' : '') + '</span>';
+    hrs.appendChild(el);
+  }
+  checkRain(d, i);
+  showHeb(d); loadJewish(d);
+  const sp = unit === 'F' ? ' mph' : ' km/h';
+  const stats = [['Feels like', deg(c.apparent_temperature)], ['Humidity', c.relative_humidity_2m + '%'], ['Wind', Math.round(c.wind_speed_10m) + sp],
+    ['Rain chance', d.daily.precipitation_probability_max[0] + '%'], ['Sunrise', fmtT(d.daily.sunrise[0])], ['Sunset', fmtT(d.daily.sunset[0])]];
+  $('stats').innerHTML = stats.map(s => '<div class="stat"><span class="dim">' + s[0] + '</span><b>' + s[1] + '</b></div>').join('');
+
+  // 7-day
+  const lo = Math.min(...d.daily.temperature_2m_min), hi = Math.max(...d.daily.temperature_2m_max), span = (hi - lo) || 1;
+  $('days').innerHTML = d.daily.time.map((t, k) => {
+    const a = d.daily.temperature_2m_min[k], b = d.daily.temperature_2m_max[k], pr = d.daily.precipitation_probability_max[k];
+    const name = k === 0 ? 'Today' : new Date(t + 'T12:00').toLocaleDateString([], {weekday:'short'});
+    return '<div class="day"><span>' + name + '</span><span class="e" title="' + wx(d.daily.weather_code[k])[0] + '">' + wx(d.daily.weather_code[k])[1] +
+      '</span><div class="rng"><span class="dim">' + deg(a) + '</span><div class="bar"><i style="left:' + ((a - lo) / span * 100) + '%;right:' + (100 - (b - lo) / span * 100) + '%"></i></div><span>' + deg(b) +
+      '</span><span class="dim" style="width:38px;text-align:right;font-size:.8rem">' + (pr >= 20 ? pr + '%' : '') + '</span></div></div>';
+  }).join('');
+}
+
+// ---- Jewish calendar ----
+let il = store.get('wx.il', false);
+function syncIl(){ $('il').textContent = il ? 'Israel holidays' : 'Diaspora holidays' }
+$('il').onclick = () => { il = !il; store.set('wx.il', il); syncIl(); if(cur) load(cur) };
+function showHeb(d){
+  try{
+    const t = d.current.time, after = t >= d.daily.sunset[0].slice(0, 16);
+    const dt = new Date(t); if(after) dt.setDate(dt.getDate() + 1);
+    const f = new Intl.DateTimeFormat('en-u-ca-hebrew', {day:'numeric', month:'long', year:'numeric'}).format(dt);
+    $('hebdate').textContent = '🕯️ ' + f + (after ? ' (began at sunset)' : '');
+  }catch(e){ $('hebdate').textContent = '' }
+}
+const JE = {candles:'🕯️', havdalah:'✨', parashat:'📖', holiday:'🕎', roshchodesh:'🌙'};
+async function loadJewish(d){
+  const box = $('jlist'); box.innerHTML = '<div class="msg">Loading…</div>';
+  const today = d.current.time.slice(0, 10), y = +today.slice(0, 4);
+  const end = new Date(today + 'T12:00'); end.setDate(end.getDate() + 45);
+  const endS = end.toISOString().slice(0, 10);
+  const years = [y]; if(+today.slice(5, 7) >= 11) years.push(y + 1);
+  try{
+    const all = [];
+    for(const yr of years){
+      const u = 'https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=on&mod=on&nx=on&s=on&c=on&M=on&b=20&m=30&i=' + (il ? 'on' : 'off') +
+        '&year=' + yr + '&month=x&geo=pos&latitude=' + cur.lat + '&longitude=' + cur.lon + '&tzid=' + encodeURIComponent(d.timezone);
+      const r = await fetch(u); if(!r.ok) throw 0;
+      all.push(...(await r.json()).items);
+    }
+    const items = all.filter(x => x.date.slice(0, 10) >= today && x.date.slice(0, 10) <= endS).slice(0, 25);
+    if(!items.length){ box.innerHTML = '<div class="msg">Nothing coming up in the next 45 days.</div>'; return }
+    box.innerHTML = '';
+    items.forEach(x => {
+      const row = document.createElement('div'); row.className = 'day'; row.style.gridTemplateColumns = '78px 30px 1fr';
+      const dd = new Date(x.date.slice(0, 10) + 'T12:00').toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'});
+      row.innerHTML = '<span class="dim"></span><span class="e"></span><span></span>';
+      row.children[0].textContent = dd; row.children[1].textContent = JE[x.category] || '•';
+      row.children[2].textContent = x.title + (x.hebrew && x.category !== 'candles' && x.category !== 'havdalah' ? ' · ' + x.hebrew : '');
+      box.appendChild(row);
+    });
+  }catch(e){ box.innerHTML = '<div class="msg">Could not load Jewish calendar. Check your connection.</div>' }
+}
+
+// ---- rain alerts ----
+let alertsOn = store.get('wx.alerts', false);
+const canNotify = () => 'Notification' in window;
+function syncAlertBtn(){
+  const b = $('alertbtn');
+  b.textContent = 'Rain alerts: ' + (alertsOn ? 'on' : 'off');
+  b.classList.toggle('on', alertsOn);
+}
+$('alertbtn').onclick = async () => {
+  if(alertsOn){ alertsOn = false; store.set('wx.alerts', false); syncAlertBtn(); return }
+  if(!canNotify()){ alertsOn = true; store.set('wx.alerts', true); syncAlertBtn(); if(cur) load(cur); showMsg('This browser can\u2019t show pop-up notifications, so alerts will appear as a banner at the top of the app.'); return }
+  let perm = Notification.permission;
+  if(perm === 'default'){ try{ perm = await Notification.requestPermission() }catch(e){} }
+  alertsOn = true; store.set('wx.alerts', true); syncAlertBtn();
+  if(cur) load(cur);
+  if(perm !== 'granted') showMsg('Notifications are blocked, so alerts will show as a banner in the app. Allow notifications in your browser settings for pop-ups.');
+};
+function checkRain(d, i){
+  const box = $('alert'), pr = d.hourly.precipitation_probability, tm = d.hourly.time;
+  let hit = -1;
+  for(let k = i; k < Math.min(i + 12, tm.length); k++){ if(pr[k] >= 50){ hit = k; break } }
+  if(hit < 0 || !alertsOn){ box.classList.add('hide'); return }
+  const when = hit === i ? 'now' : 'around ' + fmtH(tm[hit]);
+  const text = 'Rain likely ' + when + ' in ' + cur.name + ' (' + pr[hit] + '% chance)';
+  box.innerHTML = '<span class="e">🌧️</span><span></span>';
+  box.lastChild.textContent = text; box.classList.remove('hide');
+  // one pop-up per place per rain hour
+  const id = key(cur) + '|' + tm[hit].slice(0, 13);
+  if(canNotify() && Notification.permission === 'granted' && store.get('wx.lastAlert', '') !== id){
+    store.set('wx.lastAlert', id);
+    try{ new Notification('Rain alert', {body: text}) }catch(e){}
+  }
+}
+// refresh every 15 min while the app is open and visible
+setInterval(() => { if(cur && !document.hidden) load(cur) }, 15 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if(!document.hidden && cur) load(cur) });
+syncAlertBtn(); syncIl();
+
+// ---- start: default place, else prompt ----
+(function init(){
+  const d = places.find(p => key(p) === defKey) || places[0];
+  renderChips();
+  if(d) load(d);
+  else showMsg('Search for a city or tap “Use my location” to see the forecast.');
+})();
+</script>
+</body>
+</html>
