@@ -63,6 +63,10 @@ button:focus-visible,input:focus-visible{outline:2px solid #fff;outline-offset:2
 .hide{display:none}
 .alert{background:#fff;color:#16324f;border-radius:16px;padding:12px 16px;margin:4px 0 8px;display:flex;gap:10px;align-items:center;font-weight:500}
 .alert .e{font-size:1.5rem}
+.card{background:var(--soft);border-radius:16px;padding:12px 14px;margin-top:10px}
+.zr{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--soft)}
+.zr:last-child{border:0}
+html.dark body{--top:#0b1220;--bot:#1b2740}
 #alertbtn.on{background:#fff;color:#1a2633}
 </style>
 </head>
@@ -98,13 +102,23 @@ button:focus-visible,input:focus-visible{outline:2px solid #fff;outline-offset:2
 
   <div id="today">
     <div class="panel"><div class="hours" id="hours"></div></div>
+    <div class="card" id="wear"></div>
+    <div class="card hide" id="shab"></div>
+    <div class="card hide" id="wknd"></div>
+    <div class="card" id="rchart"></div>
     <div class="stats" id="stats"></div>
   </div>
   <div id="week" class="hide"><div class="panel" id="days"></div></div>
   <div id="jewish" class="hide">
+    <div class="alert hide" id="jalert"></div>
+    <div class="panel" id="zman" style="margin-bottom:12px"></div>
     <div class="panel" id="jlist"><div class="msg">Loading…</div></div>
     <div class="actions"><button id="il">Diaspora holidays</button></div>
     <p class="dim" style="text-align:center;font-size:.8rem;margin-top:10px">Candle lighting 20 min before sunset, havdalah 30 min after. Data from Hebcal.</p>
+  </div>
+  <div class="actions" id="tools" style="margin-top:22px">
+    <button id="radar">Rain radar</button><button id="share">Share forecast</button>
+    <button id="dark">Dark mode: off</button><button id="size">Text size: normal</button><button id="lang">עברית</button>
   </div>
   <div class="msg hide" id="msg"></div>
 </main>
@@ -207,8 +221,14 @@ async function load(p){
     '&forecast_days=7&timezone=auto&temperature_unit=' + (unit === 'F' ? 'fahrenheit' : 'celsius') + '&wind_speed_unit=' + (unit === 'F' ? 'mph' : 'kmh');
   try{
     const r = await fetch(u); if(!r.ok) throw 0;
-    render(await r.json());
-  }catch(e){ showMsg('Could not load the forecast. Check your connection and try again.') }
+    const j = await r.json();
+    store.set('wx.f.' + key(p) + unit, {t: Date.now(), j});
+    render(j);
+  }catch(e){
+    const c = store.get('wx.f.' + key(p) + unit, null);
+    if(c){ render(c.j); showMsg('You are offline. Showing the forecast saved ' + new Date(c.t).toLocaleString([], {weekday:'short', hour:'numeric', minute:'2-digit'}) + '.') }
+    else showMsg('Could not load the forecast. Check your connection and try again.');
+  }
 }
 const deg = n => Math.round(n) + '°';
 const fmtH = s => new Date(s).toLocaleTimeString([], {hour:'numeric'}).replace(' ', '').toLowerCase();
@@ -234,11 +254,12 @@ function render(d){
     hrs.appendChild(el);
   }
   checkRain(d, i);
-  showHeb(d); loadJewish(d);
+  showHeb(d); loadJewish(d); wear(d, i); rainChart(d, i); weekend(d);
+  lastText = cur.name + ': ' + deg(c.temperature_2m) + ' ' + emoji + ' ' + label + '. High ' + deg(d.daily.temperature_2m_max[0]) + ', low ' + deg(d.daily.temperature_2m_min[0]) + ', rain chance ' + d.daily.precipitation_probability_max[0] + '%.';
   const sp = unit === 'F' ? ' mph' : ' km/h';
   const stats = [['Feels like', deg(c.apparent_temperature)], ['Humidity', c.relative_humidity_2m + '%'], ['Wind', Math.round(c.wind_speed_10m) + sp],
-    ['Rain chance', d.daily.precipitation_probability_max[0] + '%'], ['Sunrise', fmtT(d.daily.sunrise[0])], ['Sunset', fmtT(d.daily.sunset[0])]];
-  $('stats').innerHTML = stats.map(s => '<div class="stat"><span class="dim">' + s[0] + '</span><b>' + s[1] + '</b></div>').join('');
+    ['Rain chance', d.daily.precipitation_probability_max[0] + '%'], ['UV index', Math.round(d.daily.uv_index_max[0])], ['Sunrise', fmtT(d.daily.sunrise[0])], ['Sunset', fmtT(d.daily.sunset[0])]];
+  $('stats').innerHTML = stats.map(s => '<div class="stat"><span class="dim">' + s[0] + '</span><b>' + s[1] + '</b></div>').join(''); aqi();
 
   // 7-day
   const lo = Math.min(...d.daily.temperature_2m_min), hi = Math.max(...d.daily.temperature_2m_max), span = (hi - lo) || 1;
@@ -259,38 +280,165 @@ function showHeb(d){
   try{
     const t = d.current.time, after = t >= d.daily.sunset[0].slice(0, 16);
     const dt = new Date(t); if(after) dt.setDate(dt.getDate() + 1);
-    const f = new Intl.DateTimeFormat('en-u-ca-hebrew', {day:'numeric', month:'long', year:'numeric'}).format(dt);
-    $('hebdate').textContent = '🕯️ ' + f + (after ? ' (began at sunset)' : '');
+    const f = new Intl.DateTimeFormat((he ? 'he' : 'en') + '-u-ca-hebrew', {day:'numeric', month:'long', year:'numeric'}).format(dt);
+    $('hebdate').textContent = '🕯️ ' + f + (after ? (he ? ' (התחיל בשקיעה)' : ' (began at sunset)') : '');
   }catch(e){ $('hebdate').textContent = '' }
 }
 const JE = {candles:'🕯️', havdalah:'✨', parashat:'📖', holiday:'🕎', roshchodesh:'🌙'};
+const t12 = s => { const h = +s.slice(11, 13), m = s.slice(14, 16); return ((h % 12) || 12) + ':' + m + (h < 12 ? 'am' : 'pm') };
+const ymd = x => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
+const dayName = (s, o) => new Date(s.slice(0, 10) + 'T12:00').toLocaleDateString([], o || {weekday:'short'});
+let lastText = '';
+
+async function zmanim(d, today){
+  const box = $('zman'), ck = 'wx.zm.' + key(cur) + today;
+  let t = null;
+  try{
+    const r = await fetch('https://www.hebcal.com/zmanim?cfg=json&latitude=' + cur.lat + '&longitude=' + cur.lon + '&tzid=' + encodeURIComponent(d.timezone) + '&date=' + today);
+    if(!r.ok) throw 0; t = (await r.json()).times; store.set(ck, t);
+  }catch(e){ t = store.get(ck, null) }
+  if(!t){ box.innerHTML = '<div class="msg">Zmanim are not available right now.</div>'; return }
+  const rows = [['alotHaShachar','Alot HaShachar','עלות השחר'],['misheyakir','Earliest tallis & tefillin','משיכיר'],['sunrise','Sunrise','הנץ החמה'],['sofZmanShma','Latest Shema','סוף זמן ק"ש'],['sofZmanTfilla','Latest Shacharis','סוף זמן תפילה'],['chatzot','Chatzos (midday)','חצות'],['minchaGedola','Mincha Gedola','מנחה גדולה'],['plagHaMincha','Plag HaMincha','פלג המנחה'],['sunset','Sunset','שקיעה'],['tzeit7083deg','Nightfall (tzeis)','צאת הכוכבים']];
+  box.innerHTML = '<div style="padding:10px 0 4px;font-weight:600"></div>';
+  box.firstChild.textContent = he ? 'זמני היום' : 'Today\u2019s zmanim';
+  rows.forEach(r => {
+    if(!t[r[0]]) return;
+    const row = document.createElement('div'); row.className = 'zr'; row.innerHTML = '<span></span><b></b>';
+    row.children[0].textContent = he ? r[2] : r[1]; row.children[1].textContent = t12(t[r[0]]);
+    box.appendChild(row);
+  });
+}
+
+function shabbosCard(items){
+  const c = items.find(x => x.category === 'candles'), h = items.find(x => x.category === 'havdalah'), el = $('shab');
+  if(!c && !h){ el.classList.add('hide'); return }
+  const p = [];
+  if(c) p.push((he ? 'הדלקת נרות ' : 'Candle lighting ') + dayName(c.date) + ' ' + t12(c.date));
+  if(h) p.push((he ? 'הבדלה ' : 'Havdalah ') + dayName(h.date) + ' ' + t12(h.date));
+  el.textContent = '🕯️ ' + p.join(' · '); el.classList.remove('hide');
+}
+
+function jBanner(items, d, today){
+  const msgs = [], after = d.current.time >= d.daily.sunset[0].slice(0, 16);
+  const t0 = new Date(today + 'T12:00'); if(after) t0.setDate(t0.getDate() + 1);
+  const t2 = new Date(t0); t2.setDate(t2.getDate() + 2);
+  const om = items.find(x => x.category === 'omer' && x.date.slice(0, 10) === ymd(t0));
+  if(om) msgs.push('🌾 ' + (he && om.hebrew ? om.hebrew : om.title));
+  const rc = items.find(x => x.category === 'roshchodesh' && x.date.slice(0, 10) >= today && x.date.slice(0, 10) <= ymd(t2));
+  if(rc) msgs.push('🌙 ' + (he && rc.hebrew ? rc.hebrew : rc.title) + ' · ' + dayName(rc.date, {weekday:'long'}));
+  const el = $('jalert');
+  if(!msgs.length){ el.classList.add('hide'); return }
+  el.innerHTML = ''; el.textContent = msgs.join('   '); el.classList.remove('hide');
+}
+
 async function loadJewish(d){
   const box = $('jlist'); box.innerHTML = '<div class="msg">Loading…</div>';
   const today = d.current.time.slice(0, 10), y = +today.slice(0, 4);
   const end = new Date(today + 'T12:00'); end.setDate(end.getDate() + 45);
-  const endS = end.toISOString().slice(0, 10);
-  const years = [y]; if(+today.slice(5, 7) >= 11) years.push(y + 1);
+  const endS = ymd(end), ck = 'wx.jc.' + key(cur) + (il ? 'i' : 'd');
+  let items = null;
   try{
+    const years = [y]; if(+today.slice(5, 7) >= 11) years.push(y + 1);
     const all = [];
     for(const yr of years){
-      const u = 'https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=on&mod=on&nx=on&s=on&c=on&M=on&b=20&m=30&i=' + (il ? 'on' : 'off') +
+      const u = 'https://www.hebcal.com/hebcal?v=1&cfg=json&maj=on&min=on&mod=on&nx=on&s=on&c=on&M=on&o=on&b=20&m=30&i=' + (il ? 'on' : 'off') +
         '&year=' + yr + '&month=x&geo=pos&latitude=' + cur.lat + '&longitude=' + cur.lon + '&tzid=' + encodeURIComponent(d.timezone);
       const r = await fetch(u); if(!r.ok) throw 0;
       all.push(...(await r.json()).items);
     }
-    const items = all.filter(x => x.date.slice(0, 10) >= today && x.date.slice(0, 10) <= endS).slice(0, 25);
-    if(!items.length){ box.innerHTML = '<div class="msg">Nothing coming up in the next 45 days.</div>'; return }
-    box.innerHTML = '';
-    items.forEach(x => {
-      const row = document.createElement('div'); row.className = 'day'; row.style.gridTemplateColumns = '78px 30px 1fr';
-      const dd = new Date(x.date.slice(0, 10) + 'T12:00').toLocaleDateString([], {weekday:'short', day:'numeric', month:'short'});
-      row.innerHTML = '<span class="dim"></span><span class="e"></span><span></span>';
-      row.children[0].textContent = dd; row.children[1].textContent = JE[x.category] || '•';
-      row.children[2].textContent = x.title + (x.hebrew && x.category !== 'candles' && x.category !== 'havdalah' ? ' · ' + x.hebrew : '');
-      box.appendChild(row);
-    });
-  }catch(e){ box.innerHTML = '<div class="msg">Could not load Jewish calendar. Check your connection.</div>' }
+    items = all.filter(x => x.date.slice(0, 10) >= today && x.date.slice(0, 10) <= endS);
+    store.set(ck, items);
+  }catch(e){
+    const c = store.get(ck, null);
+    if(c) items = c.filter(x => x.date.slice(0, 10) >= today);
+  }
+  zmanim(d, today);
+  if(!items){ box.innerHTML = '<div class="msg">Could not load the Jewish calendar. Check your connection.</div>'; $('shab').classList.add('hide'); $('jalert').classList.add('hide'); return }
+  shabbosCard(items); jBanner(items, d, today);
+  const list = items.filter(x => x.category !== 'omer').slice(0, 25);
+  if(!list.length){ box.innerHTML = '<div class="msg">Nothing coming up in the next 45 days.</div>'; return }
+  box.innerHTML = '';
+  list.forEach(x => {
+    const row = document.createElement('div'); row.className = 'day'; row.style.gridTemplateColumns = '78px 30px 1fr';
+    row.innerHTML = '<span class="dim"></span><span class="e"></span><span></span>';
+    row.children[0].textContent = dayName(x.date, {weekday:'short', day:'numeric', month:'short'});
+    row.children[1].textContent = JE[x.category] || '•';
+    let txt;
+    if(x.category === 'candles' || x.category === 'havdalah'){
+      txt = (he ? (x.category === 'candles' ? 'הדלקת נרות' : 'הבדלה') : (x.category === 'candles' ? 'Candle lighting' : 'Havdalah')) + ' ' + t12(x.date);
+    } else txt = he && x.hebrew ? x.hebrew : x.title + (x.hebrew ? ' · ' + x.hebrew : '');
+    row.children[2].textContent = txt; row.children[2].dir = 'auto';
+    box.appendChild(row);
+  });
 }
+
+// ---- extra cards on the Today tab ----
+function wear(d, i){
+  let f = d.current.apparent_temperature; if(unit === 'F') f = (f - 32) * 5 / 9;
+  const rain = Math.max(...d.hourly.precipitation_probability.slice(i, i + 12)), uv = d.daily.uv_index_max[0];
+  const base = f <= 0 ? 'a heavy coat, hat and gloves' : f < 8 ? 'a warm coat' : f < 15 ? 'a jacket' : f < 22 ? 'a light layer' : f < 28 ? 'light clothing' : 'light clothes and water';
+  let s = 'What to wear: ' + base;
+  if(rain >= 40) s += ', plus an umbrella';
+  if(uv >= 6 && d.current.is_day) s += ', plus sunscreen';
+  $('wear').textContent = '🧥 ' + s + '.';
+}
+function rainChart(d, i){
+  const p = d.hourly.precipitation_probability.slice(i, i + 24), bw = 100 / p.length;
+  let bars = '';
+  p.forEach((v, k) => { const h = Math.max(1, v * 0.6); bars += '<rect x="' + (k * bw + bw * .15) + '" y="' + (60 - h) + '" width="' + (bw * .7) + '" height="' + h + '" fill="#fff" opacity="' + (v >= 50 ? 1 : .55) + '"/>' });
+  $('rchart').innerHTML = '<div class="dim" style="margin-bottom:6px">Chance of rain, next 24 hours</div><svg viewBox="0 0 100 60" preserveAspectRatio="none" style="width:100%;height:70px;display:block" role="img" aria-label="Rain chance by hour">' + bars + '</svg><div class="dim" style="display:flex;justify-content:space-between;font-size:.75rem;margin-top:4px"><span>Now</span><span>+12h</span><span>+24h</span></div>';
+}
+function weekend(d){
+  const el = $('wknd'), T = d.daily.time, g = k => new Date(T[k] + 'T12:00').getDay();
+  const k0 = T.findIndex((t, k) => g(k) === 5 || g(k) === 6);
+  if(k0 < 0){ el.classList.add('hide'); return }
+  const ks = [k0]; if(g(k0) === 5 && k0 + 1 < T.length) ks.push(k0 + 1);
+  el.innerHTML = '<div class="dim" style="margin-bottom:6px"></div>';
+  el.firstChild.textContent = he ? 'תחזית לשבת' : 'Shabbos forecast';
+  ks.forEach(k => {
+    const r = document.createElement('div'); r.className = 'zr';
+    r.innerHTML = '<span></span><b></b>';
+    const pr = d.daily.precipitation_probability_max[k];
+    r.children[0].textContent = dayName(T[k], {weekday:'long'}) + ' ' + wx(d.daily.weather_code[k])[1];
+    r.children[1].textContent = deg(d.daily.temperature_2m_max[k]) + ' / ' + deg(d.daily.temperature_2m_min[k]) + (pr >= 20 ? ' · ' + pr + '% rain' : '');
+    el.appendChild(r);
+  });
+  el.classList.remove('hide');
+}
+async function aqi(){
+  const p = cur, k = key(p);
+  try{
+    const r = await fetch('https://air-quality-api.open-meteo.com/v1/air-quality?current=us_aqi&latitude=' + p.lat + '&longitude=' + p.lon);
+    const v = (await r.json()).current.us_aqi;
+    if(v == null || !cur || key(cur) !== k) return;
+    const lab = v <= 50 ? 'Good' : v <= 100 ? 'Moderate' : v <= 150 ? 'Poor for sensitive groups' : v <= 200 ? 'Unhealthy' : 'Very unhealthy';
+    const old = $('aqi'); if(old) old.remove();
+    const el = document.createElement('div'); el.className = 'stat'; el.id = 'aqi';
+    el.innerHTML = '<span class="dim">Air quality</span><b></b>'; el.lastChild.textContent = Math.round(v) + ' · ' + lab;
+    $('stats').appendChild(el);
+  }catch(e){}
+}
+
+// ---- display options and tools ----
+let dark = store.get('wx.dark', false), tsz = store.get('wx.tsz', 0), he = store.get('wx.he', false);
+function applyPrefs(){
+  document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.style.fontSize = [100, 115, 130][tsz] + '%';
+  $('dark').textContent = 'Dark mode: ' + (dark ? 'on' : 'off');
+  $('size').textContent = 'Text size: ' + ['normal', 'large', 'largest'][tsz];
+  $('lang').textContent = he ? 'English' : 'עברית';
+}
+$('dark').onclick = () => { dark = !dark; store.set('wx.dark', dark); applyPrefs() };
+$('size').onclick = () => { tsz = (tsz + 1) % 3; store.set('wx.tsz', tsz); applyPrefs() };
+$('lang').onclick = () => { he = !he; store.set('wx.he', he); applyPrefs(); if(cur) load(cur) };
+$('radar').onclick = () => { if(cur) window.open('https://www.rainviewer.com/map.html?loc=' + cur.lat + ',' + cur.lon + ',7', '_blank', 'noopener') };
+$('share').onclick = async () => {
+  if(!lastText) return;
+  try{
+    if(navigator.share) await navigator.share({title: 'Weather', text: lastText});
+    else { await navigator.clipboard.writeText(lastText); showMsg('Forecast copied. Paste it into a message.') }
+  }catch(e){}
+};
 
 // ---- rain alerts ----
 let alertsOn = store.get('wx.alerts', false);
@@ -328,7 +476,7 @@ function checkRain(d, i){
 // refresh every 15 min while the app is open and visible
 setInterval(() => { if(cur && !document.hidden) load(cur) }, 15 * 60 * 1000);
 document.addEventListener('visibilitychange', () => { if(!document.hidden && cur) load(cur) });
-syncAlertBtn(); syncIl();
+syncAlertBtn(); syncIl(); applyPrefs();
 
 // ---- start: default place, else prompt ----
 (function init(){
