@@ -67,7 +67,7 @@ button:focus-visible,input:focus-visible{outline:2px solid #fff;outline-offset:2
 .zr{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--soft)}
 .zr:last-child{border:0}
 html.dark body{--top:#0b1220;--bot:#1b2740}
-#alertbtn.on{background:#fff;color:#1a2633}
+#alertbtn.on,#lvbtn.on{background:#fff;color:#1a2633}
 </style>
 </head>
 <body>
@@ -93,6 +93,7 @@ html.dark body{--top:#0b1220;--bot:#1b2740}
     </div>
   </section>
   <div class="alert hide" id="alert" role="status"></div>
+  <div class="alert hide" id="lvalert" role="status"></div>
 
   <div class="tabs" role="tablist">
     <button class="on" data-t="today" role="tab">Today</button>
@@ -110,6 +111,8 @@ html.dark body{--top:#0b1220;--bot:#1b2740}
   </div>
   <div id="week" class="hide"><div class="panel" id="days"></div></div>
   <div id="jewish" class="hide">
+    <div class="card" id="levana" style="margin:0 0 10px"></div>
+    <div class="actions" style="margin:0 0 12px"><button id="lvbtn">Levana alert: off</button><button id="lvics">Add to calendar</button></div>
     <div class="alert hide" id="jalert"></div>
     <div class="panel" id="zman" style="margin-bottom:12px"></div>
     <div class="panel" id="jlist"><div class="msg">Loading…</div></div>
@@ -254,7 +257,7 @@ function render(d){
     hrs.appendChild(el);
   }
   checkRain(d, i);
-  showHeb(d); loadJewish(d); wear(d, i); rainChart(d, i); weekend(d);
+  showHeb(d); loadJewish(d); levana(d); wear(d, i); rainChart(d, i); weekend(d);
   lastText = cur.name + ': ' + deg(c.temperature_2m) + ' ' + emoji + ' ' + label + '. High ' + deg(d.daily.temperature_2m_max[0]) + ', low ' + deg(d.daily.temperature_2m_min[0]) + ', rain chance ' + d.daily.precipitation_probability_max[0] + '%.';
   const sp = unit === 'F' ? ' mph' : ' km/h';
   const stats = [['Feels like', deg(c.apparent_temperature)], ['Humidity', c.relative_humidity_2m + '%'], ['Wind', Math.round(c.wind_speed_10m) + sp],
@@ -440,6 +443,62 @@ $('share').onclick = async () => {
   }catch(e){}
 };
 
+// ---- Kiddush Levana (ברכת הלבנה): from the night of the 8th of the Hebrew month ----
+const hp = g => { const o = {}; new Intl.DateTimeFormat('en-u-ca-hebrew', {day:'numeric', month:'long'}).formatToParts(g).forEach(p => o[p.type] = p.value); return o };
+const hdOf = g => +hp(g).day;
+let lvOn = store.get('wx.lv', false);
+function syncLv(){ $('lvbtn').textContent = 'Levana alert: ' + (lvOn ? 'on' : 'off'); $('lvbtn').classList.toggle('on', lvOn) }
+$('lvbtn').onclick = async () => {
+  if(lvOn){ lvOn = false; store.set('wx.lv', false); syncLv(); if(cur) load(cur); return }
+  let perm = 'Notification' in window ? Notification.permission : 'denied';
+  if(perm === 'default'){ try{ perm = await Notification.requestPermission() }catch(e){} }
+  lvOn = true; store.set('wx.lv', true); syncLv();
+  if(cur) load(cur);
+  if(perm !== 'granted') showMsg('Pop-ups are blocked, so the alert shows as a banner when you open the app. For a reminder when the app is closed, tap “Add to calendar”.');
+};
+$('lvics').onclick = () => {
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Weather//EN'], now = new Date(), stamp = now.toISOString().replace(/[-:]|\.\d{3}/g, '');
+  for(let k = 0; k < 400; k++){
+    const g = new Date(now.getFullYear(), now.getMonth(), now.getDate() + k, 12);
+    if(hdOf(g) !== 7) continue;
+    const day = ymd(g).replace(/-/g, '');
+    L.push('BEGIN:VEVENT', 'UID:levana-' + day + '@weather-app', 'DTSTAMP:' + stamp, 'DTSTART:' + day + 'T200000', 'DTEND:' + day + 'T203000',
+      'SUMMARY:ברכת הלבנה - Kiddush Levana tonight', 'DESCRIPTION:The lunar blessing can be said from nightfall tonight (night of the 8th) until about the 14th or 15th of the month.',
+      'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Kiddush Levana tonight', 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT');
+  }
+  L.push('END:VCALENDAR');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([L.join('\r\n')], {type:'text/calendar'}));
+  a.download = 'kiddush-levana.ics'; document.body.appendChild(a); a.click(); a.remove();
+  showMsg('Calendar file saved. Open it to add a reminder for the first night each month (set for 8:00pm; edit the time to suit your area).');
+};
+function levana(d){
+  const t = d.current.time, after = t >= d.daily.sunset[0].slice(0, 16), base = new Date(t.slice(0, 10) + 'T12:00');
+  const at = k => { const g = new Date(base); g.setDate(g.getDate() + k); return g };
+  const fmt = g => dayName(ymd(g), {weekday:'long', day:'numeric', month:'short'});
+  const hd0 = hdOf(at(0)), open = hd0 >= 7 && hd0 <= 13, card = $('levana'), ban = $('lvalert');
+  let main, sub = '';
+  if(open){
+    const last = at(13 - hd0);
+    main = hd0 === 7 && !after ? 'Starts tonight, after nightfall' : 'Can be said tonight, after nightfall';
+    sub = 'Last evening (approx.): ' + fmt(last);
+  } else {
+    let k = 0; while(k < 45 && hdOf(at(k)) !== 7) k++;
+    main = 'Next: ' + fmt(at(k)) + ', after nightfall';
+  }
+  card.innerHTML = '<div style="font-weight:600"></div><div style="margin-top:4px"></div><div class="dim" style="margin-top:4px"></div><div class="dim" style="font-size:.78rem;margin-top:8px"></div>';
+  card.children[0].textContent = '🌙 ' + (he ? 'ברכת הלבנה' : 'Kiddush Levana (lunar blessing)');
+  card.children[1].textContent = main; card.children[2].textContent = sub;
+  card.children[3].textContent = 'Counted from the night of the 8th of the Hebrew month, until about the 14th–15th. Many people count 3 or 7 full days from the molad instead, so near the edges check your calendar or rabbi.';
+  if(!open || !lvOn){ ban.classList.add('hide'); return }
+  ban.innerHTML = '<span class="e">🌙</span><span></span>'; ban.lastChild.textContent = (he ? 'ברכת הלבנה — ' : 'Kiddush Levana — ') + main.toLowerCase() + '.';
+  ban.classList.remove('hide');
+  const id = 'lv|' + t.slice(0, 10);
+  if((after || hd0 === 7) && 'Notification' in window && Notification.permission === 'granted' && store.get('wx.lvLast', '') !== id){
+    store.set('wx.lvLast', id);
+    try{ new Notification('Kiddush Levana', {body: main + '.'}) }catch(e){}
+  }
+}
+
 // ---- rain alerts ----
 let alertsOn = store.get('wx.alerts', false);
 const canNotify = () => 'Notification' in window;
@@ -476,7 +535,7 @@ function checkRain(d, i){
 // refresh every 15 min while the app is open and visible
 setInterval(() => { if(cur && !document.hidden) load(cur) }, 15 * 60 * 1000);
 document.addEventListener('visibilitychange', () => { if(!document.hidden && cur) load(cur) });
-syncAlertBtn(); syncIl(); applyPrefs();
+syncAlertBtn(); syncIl(); syncLv(); applyPrefs();
 
 // ---- start: default place, else prompt ----
 (function init(){
