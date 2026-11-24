@@ -67,7 +67,7 @@ button:focus-visible,input:focus-visible{outline:2px solid #fff;outline-offset:2
 .zr{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--soft)}
 .zr:last-child{border:0}
 html.dark body{--top:#0b1220;--bot:#1b2740}
-#alertbtn.on,#lvbtn.on{background:#fff;color:#1a2633}
+#alertbtn.on,#lvbtn.on,#chbtn.on{background:#fff;color:#1a2633}
 </style>
 </head>
 <body>
@@ -94,6 +94,7 @@ html.dark body{--top:#0b1220;--bot:#1b2740}
   </section>
   <div class="alert hide" id="alert" role="status"></div>
   <div class="alert hide" id="lvalert" role="status"></div>
+  <div class="alert hide" id="chalert" role="status"></div>
 
   <div class="tabs" role="tablist">
     <button class="on" data-t="today" role="tab">Today</button>
@@ -113,6 +114,8 @@ html.dark body{--top:#0b1220;--bot:#1b2740}
   <div id="jewish" class="hide">
     <div class="card" id="levana" style="margin:0 0 10px"></div>
     <div class="actions" style="margin:0 0 12px"><button id="lvbtn">Levana alert: off</button><button id="lvics">Add to calendar</button></div>
+    <div class="card" id="chcard" style="margin:0 0 10px"></div>
+    <div class="actions" style="margin:0 0 12px"><button id="chbtn">Chatzos alert: off</button><button id="chics">Add 7 nights to calendar</button></div>
     <div class="alert hide" id="jalert"></div>
     <div class="panel" id="zman" style="margin-bottom:12px"></div>
     <div class="panel" id="jlist"><div class="msg">Loading…</div></div>
@@ -257,7 +260,7 @@ function render(d){
     hrs.appendChild(el);
   }
   checkRain(d, i);
-  showHeb(d); loadJewish(d); levana(d); wear(d, i); rainChart(d, i); weekend(d);
+  showHeb(d); lastD = d; loadJewish(d); levana(d); chatzCard(d); wear(d, i); rainChart(d, i); weekend(d);
   lastText = cur.name + ': ' + deg(c.temperature_2m) + ' ' + emoji + ' ' + label + '. High ' + deg(d.daily.temperature_2m_max[0]) + ', low ' + deg(d.daily.temperature_2m_min[0]) + ', rain chance ' + d.daily.precipitation_probability_max[0] + '%.';
   const sp = unit === 'F' ? ' mph' : ' km/h';
   const stats = [['Feels like', deg(c.apparent_temperature)], ['Humidity', c.relative_humidity_2m + '%'], ['Wind', Math.round(c.wind_speed_10m) + sp],
@@ -499,6 +502,69 @@ function levana(d){
   }
 }
 
+// ---- Tikkun Chatzos (תיקון חצות): alert 15 min before halachic midnight ----
+let lastD = null, chOn = store.get('wx.ch', false);
+const isoMs = s => Date.parse(s + ':00Z');
+const chatzNight = (d, k) => new Date((isoMs(d.daily.sunrise[k]) + isoMs(d.daily.sunset[k])) / 2 + 12 * 3600000).toISOString().slice(0, 16);
+const locNow = d => new Date().toLocaleString('sv-SE', {timeZone: d.timezone}).slice(0, 16).replace(' ', 'T');
+const skipNight = (d, k) => new Date(d.daily.time[k] + 'T12:00').getDay() === 5; // Friday evening begins Shabbos
+function syncCh(){ $('chbtn').textContent = 'Chatzos alert: ' + (chOn ? 'on' : 'off'); $('chbtn').classList.toggle('on', chOn) }
+$('chbtn').onclick = async () => {
+  if(chOn){ chOn = false; store.set('wx.ch', false); syncCh(); chatzCheck(); return }
+  let perm = 'Notification' in window ? Notification.permission : 'denied';
+  if(perm === 'default'){ try{ perm = await Notification.requestPermission() }catch(e){} }
+  chOn = true; store.set('wx.ch', true); syncCh(); chatzCheck();
+  if(perm !== 'granted') showMsg('Pop-ups are blocked, so the alert shows as a banner while the app is open. For a reminder when the app is closed, tap “Add 7 nights to calendar”.');
+};
+$('chics').onclick = () => {
+  if(!lastD){ showMsg('Choose a place first.'); return }
+  const d = lastD, now = isoMs(locNow(d)), stamp = new Date().toISOString().replace(/[-:]|\.\d{3}/g, ''), f = x => x.replace(/[-:]/g, '') + '00';
+  const L = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Weather//EN']; let n = 0;
+  for(let k = 0; k < d.daily.time.length; k++){
+    if(skipNight(d, k)) continue;
+    const s = chatzNight(d, k); if(isoMs(s) <= now) continue;
+    const e = new Date(isoMs(s) + 10 * 60000).toISOString().slice(0, 16);
+    L.push('BEGIN:VEVENT', 'UID:chatzos-' + s.replace(/\D/g, '') + '@weather-app', 'DTSTAMP:' + stamp, 'DTSTART:' + f(s), 'DTEND:' + f(e),
+      'SUMMARY:תיקון חצות - Tikkun Chatzos', 'DESCRIPTION:Halachic midnight at ' + t12(s) + '.',
+      'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:Tikkun Chatzos in 15 minutes', 'TRIGGER:-PT15M', 'END:VALARM', 'END:VEVENT'); n++;
+  }
+  L.push('END:VCALENDAR');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([L.join('\r\n')], {type:'text/calendar'}));
+  a.download = 'tikkun-chatzos.ics'; document.body.appendChild(a); a.click(); a.remove();
+  showMsg(n + ' nights saved. Open the file to add them to your calendar, with an alert 15 minutes before each. Tap again in a week for the next ones.');
+};
+function chatzCard(d){
+  const now = isoMs(locNow(d)); let k = 0;
+  while(k < 6 && (skipNight(d, k) || isoMs(chatzNight(d, k)) <= now)) k++;
+  const s = chatzNight(d, k), el = $('chcard'), a = new Date(isoMs(s) - 15 * 60000).toISOString().slice(0, 16);
+  el.innerHTML = '<div style="font-weight:600"></div><div style="margin-top:4px"></div><div class="dim" style="margin-top:4px;font-size:.85rem"></div>';
+  el.children[0].textContent = '🕯️ ' + (he ? 'תיקון חצות' : 'Tikkun Chatzos (midnight)');
+  el.children[1].textContent = 'Next: ' + dayName(s, {weekday:'long'}) + ' night, chatzos at ' + t12(s);
+  el.children[2].textContent = 'Alert 15 minutes before, at ' + t12(a) + '. Not set for Shabbos night.';
+  chatzCheck();
+}
+function chatzCheck(){
+  const ban = $('chalert');
+  if(!chOn || !lastD){ ban.classList.add('hide'); return }
+  const d = lastD, now = isoMs(locNow(d));
+  for(let k = 0; k < d.daily.time.length; k++){
+    if(skipNight(d, k)) continue;
+    const s = chatzNight(d, k), diff = (isoMs(s) - now) / 60000;
+    if(diff > 0 && diff <= 15){
+      const msg = 'תיקון חצות in ' + Math.ceil(diff) + ' min (chatzos at ' + t12(s) + ')';
+      ban.innerHTML = '<span class="e">🕯️</span><span></span>'; ban.lastChild.textContent = msg; ban.classList.remove('hide');
+      const id = 'ch|' + s;
+      if('Notification' in window && Notification.permission === 'granted' && store.get('wx.chLast', '') !== id){
+        store.set('wx.chLast', id);
+        try{ new Notification('תיקון חצות', {body: msg}) }catch(e){}
+      }
+      return;
+    }
+  }
+  ban.classList.add('hide');
+}
+setInterval(chatzCheck, 30000);
+
 // ---- rain alerts ----
 let alertsOn = store.get('wx.alerts', false);
 const canNotify = () => 'Notification' in window;
@@ -535,7 +601,7 @@ function checkRain(d, i){
 // refresh every 15 min while the app is open and visible
 setInterval(() => { if(cur && !document.hidden) load(cur) }, 15 * 60 * 1000);
 document.addEventListener('visibilitychange', () => { if(!document.hidden && cur) load(cur) });
-syncAlertBtn(); syncIl(); syncLv(); applyPrefs();
+syncAlertBtn(); syncIl(); syncLv(); syncCh(); applyPrefs();
 
 // ---- start: default place, else prompt ----
 (function init(){
